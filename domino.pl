@@ -10,14 +10,15 @@ grammar Lisp {
     token nil { 'nil' }
     token atom { <literal>||<nil>||<spform>||<symbol> }
     token spform { 'car' | 'cdr' | 'cons' | 'eq' | 'atom' | 'cond' | 'if' | 'define' | 'quote' }
+    token dot { '.' }
 
-    rule sexpr { <atom> || <left> <sexpr>+? % <.ws> <right> }
+    rule sexpr { <atom> || <left> [<sexpr>+? % <.ws>] [<dot> <.ws> <sexpr>]? <right> }
     rule TOP { ^^ <sexpr> $$ }
 }
 
 class Parse {
 
-#    BEGIN { Any.^add_method("at_key", method (*@_) { return Nil }); }
+    BEGIN { Any.^add_method("at_key", method (*@_) { return Nil }); }
 
     method left ($/) {
         make '(';
@@ -133,15 +134,51 @@ class Evaluate is Parse {
     }
 
     method !speval ($spform, $/) {
+        say $spform;
         given $spform {
+
             when "quote" {
                 $/.elems == 1 or die "quote: wrong number of argument => " ~ $/.elems ~ "\n";
                 return $/[0].ast.substr(1);
             }
+
             when "cdr" {
+                $/.elems == 1 or die "cdr: wrong number of argument => " ~ $/.elems ~ "\n";
                 my $m = Lisp.parse($/[0].ast, actions => Parse);
                 self!check_elem($m<sexpr><sexpr>);
                 return "(" ~ $m.<sexpr><sexpr>.map(*.ast)[1..*].join(" ") ~ ")";
+            }
+
+            when "car" {
+                $/.elems == 1 or die "car: wrong number of argument => " ~ $/.elems ~ "\n";
+                my $m = Lisp.parse($/[0].ast, actions => Parse);
+                self!check_elem($m<sexpr><sexpr>);
+                return $m.<sexpr><sexpr>[0].ast;
+            }
+
+            when "cons" {
+                $/.elems == 2 or die "cons: wrong number of argument =>" ~ $/.elems ~ "\n";
+                say $/;
+                my @m = $/.map({Lisp.parse($_.ast, actions => Parse)});
+                self!check_elem(any @m<sexpr><sexpr>);
+
+                say @m;
+            }
+
+            when "atom" {
+                ...
+            }
+
+            when "eq" {
+                ...
+            }
+
+            when "cond" {
+                ...
+            }
+
+            when "if" {
+                ...
             }
         }
     }
@@ -157,7 +194,19 @@ class Evaluate is Parse {
 }
 
 
-my $str = '(cdr (cdr (quote (1 2 3 4))))';
+#my $str = '(car (cdr (cdr (quote (1 2 3 4)))))';
+my $str = '(cons (quote (1 2)) (quote (3 4)))';
 my $ev = Evaluate.new;
 my $m = Lisp.parse($str, actions => $ev);
 say "m = ",$m.ast;
+
+=begin END
+
+Parse
+Interpolate(dequote, pairize)
+Evaluate
+
+の三つのactionを用意しておく
+
+
+変数や関数に関しては、未解決のシンボルがが検出された時点で未評価の式としてマークする。変数束縛や関数定義が検出された時に未評価の式を探し、その中の出現を束縛変数で置き換える。

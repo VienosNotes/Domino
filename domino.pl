@@ -7,9 +7,9 @@ grammar Lisp {
     token str { '"'\w+'"' }
     token literal { <num>||<str> }
     token symbol { \w+ }
-    token nil { 'nil'|'(' <ws> ')' }
+    token nil { 'nil'|'('  <.ws> ')' }
     token atom { <literal>||<nil>||<spform>||<symbol> }
-    token spform { 'car' | 'cdr' | 'cons' | 'eq' | 'atom' | 'cond' | 'if' | 'define' | 'quote' }
+    token spform { 'car' | 'cdr' | 'cons' | 'equal' | 'atom' | 'cond' | 'if' | 'define' | 'quote' }
     token dot { '.' }
 
     rule sexpr { <atom> || <left> [<sexpr>+? % <.ws>] [<dot> <.ws> <sexpr>]? <right> }
@@ -60,7 +60,7 @@ class Parse {
         if $<atom> {
             make $<atom>.ast;
         } else {
-            make self!eval($<sexpr>);
+            make self.eval($<sexpr>);
         }
     }
 
@@ -68,8 +68,7 @@ class Parse {
         make $<sexpr>.ast;
     }
 
-    method !eval ($/) {
-        say "called";
+    method eval ($/) {
         return $/.Str;
     }
 }
@@ -78,55 +77,7 @@ class Evaluate is Parse {
 
     has %!sym = {};
 
-    method left ($/) {
-        make '(';
-    }
-
-    method right ($/) {
-        make ')';
-    }
-
-    method num ($/) {
-        make $/.Str;
-    }
-
-    method str ($/) {
-        make $/.Str;
-    }
-
-    method literal ($/) {
-        make $<num>.?ast // $<str>.ast;
-    }
-
-    method symbol ($/) {
-        make $/.Str;
-    }
-
-    method spform ($/) {
-        make $/.Str;
-    }
-
-    method nil ($/) {
-        make 'nil';
-    }
-
-    method atom ($/) {
-        make $<nil>.?ast // $<spform>.?ast // $<literal>.?ast;
-    }
-
-    method sexpr ($/) {
-        if $<atom> {
-            make $<atom>.ast;
-        } else {
-            make self!eval($<sexpr>);
-        }
-    }
-
-    method TOP ($/) {
-        make $<sexpr>.ast;
-    }
-
-    method !eval ($/) {
+    method eval ($/) {
         # 特殊形式
         if $/[0]<atom><spform> -> $_ { return self!speval($_.ast, $/[1..*]) }
         # シンボル名を解決できた場合
@@ -136,12 +87,10 @@ class Evaluate is Parse {
     }
 
     method !speval ($spform, $/) {
-        say "operation for: ", $spform;
-        given $spform {
 
+        given $spform {
             when "quote" {
                 $/.elems == 1 or die "quote: wrong number of argument => " ~ $/.elems ~ "\n";
-                say $/[0]<atom>;
                 return $/[0].ast if $/[0]<atom>;
                 $/[0].ast.match(/^\@/) or die "error: something is wrong...: ", $/[0].ast;
                 return $/[0].ast.substr(1);
@@ -149,36 +98,49 @@ class Evaluate is Parse {
 
             when "cdr" {
                 $/.elems == 1 or die "cdr: wrong number of argument => " ~ $/.elems ~ "\n";
-                my $m = Lisp.parse($/[0].ast, actions => Parse);
-                self!check_elem($m<sexpr><sexpr>);
-                return "(" ~ $m.<sexpr><sexpr>.map(*.ast)[1..*].join(" ") ~ ")";
+                if $/[0]<sexpr>[1]<dot> {
+                    return $/[0]<sexpr>[1]<sexpr>[1].ast;
+                } else {
+                    my $m = Lisp.parse($/[0].ast, actions => Parse);
+                    self!check_elem($m<sexpr><sexpr>);
+                    return "(" ~ $m.<sexpr><sexpr>.map(*.ast)[1..*].join(" ") ~ ")";
+                }
             }
 
             when "car" {
                 $/.elems == 1 or die "car: wrong number of argument => " ~ $/.elems ~ "\n";
                 my $m = Lisp.parse($/[0].ast, actions => Parse);
                 self!check_elem($m<sexpr><sexpr>);
-                return $m.<sexpr><sexpr>[0].ast;
+                if $m<sexpr><sexpr><atom> {
+                    return $m<sexpr><sexpr>[0].ast;
+                } else {
+                    return "(" ~ self!reduce_ws($m<sexpr><sexpr>[0].ast) ~ ")";
+                }
             }
 
             when "cons" {
                 $/.elems == 2 or die "cons: wrong number of argument =>" ~ $/.elems ~ "\n";
+                my $m = Lisp.parse($/[0].ast, actions => Parse);
+                self!check_elem($m<sexpr><sexpr>);
 
                 my @m;
+
                 # (cons '(list) '(list))の場合
                 if $/[0]<sexpr>[1]<sexpr> && $/[1]<sexpr>[1]<sexpr> {
                     @m = $/.map({Lisp.parse($_.ast, actions => Parse)});
                     self!check_elem(any @m<sexpr><sexpr>);
                 }
+
                 # (cons 'atom '(list))の場合
                 elsif $/[0]<sexpr>[1]<atom> && $/[1]<sexpr>[1]<sexpr> {
                     @m = $/[0]<sexpr>[1]<atom>, Lisp.parse($/[1].ast, actions => Parse);
                 }
+
                 # (cons 'atom 'atom)の場合
                 elsif $/[0]<sexpr>[1]<atom> && $/[1]<sexpr>[1]<atom> {
                     return self!reduce_ws("(" ~ $/[0]<sexpr>[1]<atom>.ast ~ " . " ~ $/[1]<sexpr>[1]<atom>.ast ~ ")");
-
                 }
+
                 # (cons '(list) 'atom)の場合
                 else {
                     return self!reduce_ws("(" ~ $/[0].ast ~ " . "  ~ $/[1].ast ~ ")");
@@ -187,11 +149,19 @@ class Evaluate is Parse {
             }
 
             when "atom" {
-                ...
+                $/.elems == 1 or die "atom: wrong number of argument =>" ~ $/.elems ~ "\n";
+                my $m = Lisp.parse($/[0].ast, actions => Parse);
+                self!check_elem($m[0]);
+
+                return $/[0]<atom> ?? "t" !! "nil";
             }
 
-            when "eq" {
-                ...
+            when "equal" {
+                $/.elems == 2 or die "equal: wrong number of argument =>" ~ $/.elems ~ "\n";
+                my $m = Lisp.parse($/[0].ast, actions => Parse);
+                self!check_elem($m);
+
+                return self!reduce_ws($/[0].ast) eq self!reduce_ws($/[1].ast) ?? "t" !! "nil";
             }
 
             when "cond" {
@@ -199,6 +169,10 @@ class Evaluate is Parse {
             }
 
             when "if" {
+                ...
+            }
+
+            when "define" {
                 ...
             }
         }
@@ -209,7 +183,7 @@ class Evaluate is Parse {
     }
 
     method !check_elem ($/) {
-        none($/[0]>>.ast.match(/^\@\(/)).Bool or die "undefined funtion: " ~ $/[0]<sexpr>[0].ast ~ "\n";
+        none($/[0]>>.?ast.match(/^\@\(/)).Bool or die "undefined funtion: " ~ $/[0]<sexpr>[0].ast ~ "\n";
     }
 
     method !reduce_ws (Str $s is copy) {
@@ -217,20 +191,7 @@ class Evaluate is Parse {
     }
 }
 
-
-#my $str = '(car (cdr (cdr (quote (1 2 3 4)))))';
-my $str = '(cons 1 (quote 2))';
+my $str = open(@*ARGS[0], :r).lines.join;
 my $ev = Evaluate.new;
 my $m = Lisp.parse($str, actions => $ev);
-say "m = ",$m.ast;
-
-=begin END
-
-Parse
-Interpolate(dequote, pairize)
-Evaluate
-
-の三つのactionを用意しておく
-
-
-変数や関数に関しては、未解決のシンボルがが検出された時点で未評価の式としてマークする。変数束縛や関数定義が検出された時に未評価の式を探し、その中の出現を束縛変数で置き換える。
+say $m ?? $m.ast !! "parse error";

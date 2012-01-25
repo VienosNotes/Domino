@@ -6,19 +6,28 @@ grammar Lisp {
     token num { \d+ }
     token str { '"'\w+'"' }
     token literal { <num>||<str> }
-    token symbol { \w+ }
     token nil { 'nil'|'('  <.ws> ')' }
-    token atom { <literal>||<nil>||<spform>||<symbol> }
-    token spform { 'car' | 'cdr' | 'cons' | 'equal' | 'atom' | 'cond' | 'if' | 'define' | 'quote' }
-    token dot { '.' }
 
-    rule sexpr { <atom> || <left> [<sexpr>+? % <.ws>] [<dot> <.ws> <sexpr>]? <right> }
-    rule TOP { ^^ <sexpr> $$ }
+    # token ne_num { \d+ }
+    # token ne_symbol { \w+ }
+    # token ne_atom { <nil> || <ne_num> || <ne_symbol> }
+    rule ne_sexpr { <atom> || <.left> [<ne_sexpr>+? % <.ws>] [<dot> <.ws> <ne_sexpr>]? <.right> }
+
+    token spform { 'cond' | 'if' | 'define' | 'quote' }
+    rule sp_sexpr { <.left> <spform> [<ne_sexpr>+? % <.ws>]  <.right> }
+
+    token symbol { \w+ }
+    token atom { <literal>||<nil>||<spform>||<symbol> }
+
+    token dot { '.' }
+    rule sexpr { <atom> || <sp_sexpr> || <.left> [<sexpr>+? % <.ws>] [<dot> <.ws> <sexpr>]? <.right> }
+    rule TOP { ^^ [<sexpr> || <ne_sexpr>] $$ }
 }
 
 class Parse {
-
-    BEGIN { Any.^add_method("at_key", method (*@_) { return Nil }); }
+    BEGIN {
+        Any.^add_method("at_key", method (*@_) { return Nil });
+    }
 
     method left ($/) {
         make '(';
@@ -53,15 +62,19 @@ class Parse {
     }
 
     method atom ($/) {
-        make $<nil>.?ast // $<spform>.?ast // $<literal>.?ast;
+        make $<nil>.?ast // $<spform>.?ast // $<literal>.?ast // $<symbol>.ast;
     }
 
     method sexpr ($/) {
         if $<atom> {
             make $<atom>.ast;
         } else {
-            make self.eval($<sexpr>);
+            make self.eval($<sp_sexpr> // $<sexpr>);
         }
+    }
+
+    method ne_sexpr ($/) {
+        make $/.Str;
     }
 
     method TOP ($/) {
@@ -79,23 +92,41 @@ class Evaluate is Parse {
 
     method eval ($/) {
         # 特殊形式
-        if $/[0]<atom><spform> -> $_ { return self!speval($_.ast, $/[1..*]) }
+        if $/<spform> -> $_ { return self!speval($_.ast, $/<ne_sexpr>) }
         # シンボル名を解決できた場合
-        elsif $/[0].?ast ~~ %!sym { return self!funceval(%!sym{$/[0].ast}, $/[1..*]) }
+        else { say $/[0].ast; return self!funceval($/[0].ast, $/[1..*]); }
         # そうでない場合: 特殊形式の一部以外ではself!check_elemで死ぬようにする
-        else { return "@(" ~ $/.map(*.ast).join(" ") ~ ")"; }
+        # else { return "@(" ~ $/.map(*.ast).join(" ") ~ ")"; }
     }
 
     method !speval ($spform, $/) {
-
+#        say $/;
         given $spform {
             when "quote" {
                 $/.elems == 1 or die "quote: wrong number of argument => " ~ $/.elems ~ "\n";
-                return $/[0].ast if $/[0]<atom>;
-                $/[0].ast.match(/^\@/) or die "error: something is wrong...: ", $/[0].ast;
-                return $/[0].ast.substr(1);
+                return $/.Str;
+                # return $/[0].ast if $/[0]<atom>;
+                # $/[0].ast.match(/^\@/) or die "error: something is wrong...: ", $/[0].ast;
+                # return $/[0].ast.substr(1);
             }
 
+            when "cond" {
+                ...
+            }
+
+            when "if" {
+                ...
+            }
+
+            when "define" {
+                ...
+            }
+        }
+    }
+
+    method !funceval ($symbol, $/) {
+
+        given $symbol {
             when "cdr" {
                 $/.elems == 1 or die "cdr: wrong number of argument => " ~ $/.elems ~ "\n";
                 if $/[0]<sexpr>[1]<dot> {
@@ -163,23 +194,7 @@ class Evaluate is Parse {
 
                 return self!reduce_ws($/[0].ast) eq self!reduce_ws($/[1].ast) ?? "t" !! "nil";
             }
-
-            when "cond" {
-                ...
-            }
-
-            when "if" {
-                ...
-            }
-
-            when "define" {
-                ...
-            }
         }
-    }
-
-    method !funceval ($func, $/) {
-        return "@(" ~ $/.map(*.ast).join(" ") ~ ")";
     }
 
     method !check_elem ($/) {
@@ -191,7 +206,27 @@ class Evaluate is Parse {
     }
 }
 
-my $str = open(@*ARGS[0], :r).lines.join;
-my $ev = Evaluate.new;
-my $m = Lisp.parse($str, actions => $ev);
-say $m ?? $m.ast !! "parse error";
+sub MAIN ($file! as Str) {
+    my $str = load_file($file); #open($file, :r).lines.join;
+    my $ev = Evaluate.new;
+    my $m = Lisp.parse($str, actions => $ev);
+#    .say for iterate_hash($m, *.Str ); # ?? $m.ast !! "parse error";
+    say $m.ast;
+}
+
+sub load_file ($file) {
+    my $str = open($file, :r).lines.grep({ !($_ ~~  /^\;/) }).join;
+    say $str;
+    return $str;
+}
+sub iterate_hash ($hash, $callback) {
+    my @val;
+    if $hash.keys -> {
+        for $hash {
+            @val.push($callback($_));
+        }
+        return @val, $callback($hash);
+    } else {
+        return $callback($hash);
+    }
+}

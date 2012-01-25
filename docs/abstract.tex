@@ -1,0 +1,563 @@
+\documentclass[14pt,dvipdfm,trans]{beamer}
+% pdfの栞の字化けを防ぐ
+% テーマ
+\usetheme{CambridgeUS}
+% navi. symbolsは目立たないが，dvipdfmxを使うと機能しないので非表示に
+\setbeamertemplate{navigation symbols}{} 
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+% フォントはお好みで
+\usepackage{txfonts}
+\usepackage{strike}
+\mathversion{bold}
+\renewcommand{\familydefault}{\sfdefault}
+\renewcommand{\kanjifamilydefault}{\gtdefault}
+\setbeamerfont{title}{size=\large,series=\bfseries}
+\setbeamerfont{frametitle}{size=\large,series=\bfseries}
+\setbeamertemplate{frametitle}[default][center]
+\usefonttheme{professionalfonts} 
+%
+\usepackage{listings}
+\definecolor{dkgreen}{rgb}{0,0.6,0}
+\definecolor{dkblue}{rgb}{0,0,0.6}
+\definecolor{skyblue}{rgb}{0.3,0.3,1}
+\definecolor{dkred}{rgb}{0.6,0,0}
+
+\renewcommand{\lstlistingname}{リスト}
+\lstset{%language=Perl,
+  basicstyle=\ttfamily\scriptsize,
+  commentstyle=\color{dkgreen},
+  stringstyle=\color{dkred},
+  classoffset=0,
+  keywordstyle=\bfseries,
+  frame=trbl,
+  framesep=3pt,
+  showstringspaces=false,
+  numbers=left,
+  stepnumber=1,
+  numberstyle=\tiny,
+  tabsize=1,
+  morekeywords={grammar, token, rule, method, make,
+  actions, if, elsif, else, given, when, my},
+  keywordstyle=\color{dkblue},
+  classoffset=1,
+  morekeywords={Str, ast, say, parse, eq},
+  keywordstyle=\color{skyblue},
+  classoffset=0,
+  xleftmargin=2zw,
+  xrightmargin=2zw,
+  morecomment=[l]{\#},
+  morestring=[s][\color{orange}]{<}{>},
+  morestring=[s]{"}{"},
+}
+
+
+\title{Perl6の正規表現(+α)でLispモドキを実装}
+\author{青木大祐}
+\institute{筑波大学 情報科学類}
+\date{2012年1月29日}
+
+\usepackage{color}	% required for `\textcolor' (yatex added)
+\begin{document}
+\frame{\titlepage}
+\begin{frame}
+ \frametitle{このLTの概要}
+ \vspace{2zh}
+ \begin{itemize}
+  \item Perl6 Grammarの紹介
+	\vspace{3zh}
+  \item Grammarを使って遊ぶ       
+ \end{itemize}
+ \vspace{2zh}
+ \end{frame}
+
+\begin{frame}
+ \frametitle{Grammarとは？}
+ \begin{itemize}
+  \item <1-> 一般的には解析表現文法\\(\it{Parsing Expression Grammar:\textcolor{red}{PEG}})と呼ぶらしい
+  \item <2-> 小さい名前付きルールから、順に組み上げて行く構造的な表現
+  \item <3-> 正規表現と併用する事でさらに強力な記述が可能
+ \end{itemize}
+\end{frame}
+
+\begin{frame}
+\frametitle{Grammarで何が出来るのか}
+普通の正規表現と違って…
+\vspace{1zh}
+\begin{itemize}
+ \item <2-> 構造的な文字列を表現しやすい
+ \item <3-> 再帰的な構造を記述できる
+
+       \begin{itemize}
+	\item <4-> \textcolor{red}{普通の}正規表現では再帰構造を記述できない
+	\item <5-> PCRE(Perl Compatible Regular Expressions)系の\\
+	      正規表現(?)エンジンなら可能
+       \end{itemize}
+\end{itemize}
+\pause
+\vspace{2zh}
+\hspace{2zh}
+\uncover<6->{\large{\textcolor{red}{→パーサとか書くのが楽になるかも}}}
+\end{frame}
+
+\begin{frame}[fragile]
+ \frametitle{イメージとしてはこんな感じ}
+ \begin{lstlisting}
+grammar Lisp {
+    token num { \d+ }
+    token str { '"'\w+'"' }
+    token literal { <num>|<str> }
+    token nil { 'nil'|'(' <.ws> ')' }
+    token symbol { \w+ }
+    token atom { <literal>|<nil>|<symbol> }
+
+    rule sexpr { <atom> | '\''? '(' <sexpr>+? % <.ws> ')' }
+    rule TOP { ^^ <sexpr> $$ }
+}
+ \end{lstlisting} 
+\pause
+\begin{itemize}
+ \item <2-> 「リテラル」は「数字」と「文字列」
+ \item <3-> 「アトム」は「リテラル」と「nil」と「シンボル」
+ \vspace{0.2zh}
+ \item <4-> 「S式(S-Expressions)」は「アトム」と\\「S式のリスト」
+ \vspace{0.5zh}
+       \begin{itemize}
+	\item <5-> ↑再帰構造
+       \end{itemize}
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}[fragile]
+ \frametitle{実際にパースしてみる [1]}
+使い方は簡単：\\
+\hspace{1zh}parseメソッドに対象の文字列を投げるだけ\\
+\hspace{1zh}→受理されればMatchオブジェクトが返ってくる
+\vspace{3zh}
+\begin{lstlisting}
+my $str = '(equal (car '(1 2)) 2)';
+my $m = Lisp.parse($str);
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]
+ \frametitle{実際にパースしてみる [2]}
+\begin{lstlisting}
+=> <(equal (car '(1 2)) 1)>
+ sexpr => <(equal (car '(1 2)) 1)>
+  sexpr => <equal >
+   atom => <equal>
+    symbol => <equal>
+  sexpr => <(car '(1 2)) >
+   sexpr => <car >
+    atom => <car>
+     symbol => <car>
+   sexpr => <'(1 2)>
+    sexpr => <1 >
+     atom => <1>
+      literal => <1>
+       num => <1>
+    sexpr => <2>
+     atom => <2>
+      literal => <2>
+       num => <2>
+  sexpr => <1>
+   atom => <1>
+    literal => <1>
+     num => <1>
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}
+ \frametitle{更に一歩}
+\begin{itemize}
+ \item <1-> パースするだけじゃ勿体無い
+ \vspace{0.5zh}
+ \item <2-> 手動でMatchオブジェクトを走査するのは面倒
+       \begin{itemize}
+	\item <3-> トークンに刻むだけなら正規表現でも(ry
+       \end{itemize}
+\end{itemize}
+\pause
+\vspace{2zh}
+\hspace{2zh}\uncover<4->{\large{→Actionを使ってスマートに処理}}
+\end{frame}
+
+\begin{frame}[fragile]
+ \frametitle{Actionと抽象構文木 [1]}
+parseメソッドはactionsオプションを指定できる
+\vspace{1zh}
+\begin{lstlisting}
+ my $m = Lisp.parse($str, actions => SomeAction);
+\end{lstlisting}
+\pause
+\begin{itemize}
+ \item <2-> パースする際と同様に\textcolor{red}{深さ優先探索}でマッチン
+       グを試みる
+ \item <3-> トークンへのマッチが\textcolor{red}{成功}するたびに、actions
+       に指定したクラスの同名メソッドが呼ばれる
+       \vspace{1zh}
+       \begin{itemize}
+	\item <4-> actionは深さ優先探索の戻り掛けに実行される
+	      \vspace{0.5zh}
+	\item <5-> 最終的にマッチングに失敗するとしても、成功した所まで
+	      はactionが実行される点に注意
+       \end{itemize}
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+ \frametitle{Actionと抽象構文木 [2]}
+ \begin{itemize}
+  \item <1-> 引数として、マッチに成功したトークンのMatchオブジェクトが渡
+	される
+	\vspace{0.5zh}
+  \item	<2-> Matchオブジェクトを使って好きな処理をした後、抽象構文木
+	(\it{Abstract Syntax Tree:\textcolor{red}{AST}})を作る
+	\begin{itemize}
+	 \item <3-> returnで値を返すのと同じように、make文を使う
+	\end{itemize}
+	\vspace{0.3zh}
+  \item <4-> 作られた抽象構文木は、それを含む(つまり上の階層の)Matchオブ
+	ジェクトから参照できる(\$m.ast)
+ \end{itemize}
+ \vspace{1zh}
+ \pause
+ \uncover<5->{→下位要素の抽象構文木を参照しながら、上(TOP)に向かって抽象構文
+ 木を組み立てて行く}
+\end{frame}
+
+\begin{frame}
+\frametitle{Grammarで遊んでみる}
+\hspace{0.5zh}目標:
+\begin{itemize}
+ \item <1-> \textcolor{red}{\tt{(equal (car '(1 2)) 2)}}を評価する
+\vspace*{0.3zh}
+ \item <2-> 関数はequalとcarとquoteが評価できれば良い
+       \vspace*{0.5zh}
+       \begin{itemize}
+	\item <3-> equal: 2つの引数が等しいなら\textcolor{red}{t}、そうでないなら\textcolor{red}{nil}
+	\item <4-> car: 引数に受け取ったリストの先頭の要素を返す
+	\item <5-> quote: 引数に受け取ったS式をそのまま返す 
+       \end{itemize}
+       \vspace*{1zh}
+ \item <6-> 正しく評価できていれば\textcolor{red}{nil}が返るはず
+\end{itemize} 
+\end{frame}
+
+\begin{frame}[fragile]
+ \frametitle{実際のActionのコード}
+ \begin{lstlisting}
+class Evaluate {
+    method num ($/) { make $/.Str }
+    method str ($/) { make $/.Str }
+    method literal ($/) { make $<num>.?ast // $<str>.ast }
+    method nil ($/) { make 'nil' }
+    method symbol ($/) { make $/.Str }
+    method atom ($/) { 
+      make $<literal>.?ast // $<nil>.?ast // $<symbol>.ast 
+    }
+    ...
+ \end{lstlisting}
+ \begin{center}
+  \begin{tabular}{ ccc }
+   \uncover<2->{\textcolor{dkgreen}{num}と\textcolor{dkgreen}{str}のast &
+   → & 文字列そのまま}\\
+   \hline \uncover<3->{\textcolor{dkgreen}{literal}のast & → &
+	   \textcolor{dkgreen}{num}か\textcolor{dkgreen}{str}のast}\\
+   \hline \uncover<4->{\textcolor{dkgreen}{nil}のast & → & \textcolor{brown}{'nil'}}\\
+   \hline \uncover<5->{\textcolor{dkgreen}{symbol}のast & → & 文字列そのまま}\\
+   \hline \uncover<6->{\textcolor{dkgreen}{atom}のast & → & 中身のast}\\
+  \end{tabular}  
+ \end{center}
+\end{frame}
+
+\begin{frame}[fragile]
+ \frametitle{S式の解釈 [1]}
+\begin{lstlisting}
+method sexpr ($/) {
+  # quoted expressions
+  if $/.Str.match(/^^ \'/) {
+     make $/.Str.substr(1);
+  }
+  # atoms
+  elsif $<atom> {
+    make $<atom>.ast;
+  }
+  # other expressions
+  else {
+    given $<sexpr>[0].ast {
+      when "car" {
+        make $<sexpr>[1]<sexpr>[0].ast;
+      }
+      when "equal" {
+        make $<sexpr>[1].ast eq $<sexpr>[2].ast ?? "t" !! "nil";
+      }
+    }
+  }
+}
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]
+ \frametitle{S式の解釈 [2]}
+ \begin{lstlisting}[firstnumber=2]
+  # quoted expressions
+  if $/.Str.match(/^^ \'/) {
+     make $/.Str.substr(1);
+  } 
+ \end{lstlisting}
+\begin{itemize}
+ \item <2-> 先頭がクォートから始まるS式(quote関数)
+       \begin{itemize}
+	\item <3-> 引数に受け取ったS式をそのまま返す 
+	\item <4-> クォートを外してmake
+       \end{itemize}
+\end{itemize}
+ \pause[5]
+ \begin{lstlisting}[firstnumber=6]
+   # atoms
+  elsif $<atom> {
+    make $<atom>.ast;
+  }
+ \end{lstlisting}
+\begin{itemize}
+ \item <6-> atomから成るS式
+ \begin{itemize}
+   \item <7-> atomのastをそのまま使う
+ \end{itemize}
+
+\end{itemize}
+\end{frame}
+ 
+\begin{frame}[fragile]
+ \frametitle{S式の解釈 [3]}
+\begin{lstlisting}[firstnumber=10]
+  # other expressions
+  else {
+    given $<sexpr>[0].ast {
+      when "car" {
+        make $<sexpr>[1]<sexpr>[0].ast;
+      }
+\end{lstlisting}
+\uncover<2->{その他の式: S式の1番目の要素で分岐}
+\vspace*{1zh}
+\begin{itemize}
+ \item <3-> car関数
+
+       \begin{itemize}
+	\item <4-> 引数に受け取ったリストの先頭の要素を返す
+	\item <5-> 2番目のS式(つまり引数に受け取ったS式)の\\
+	      1番目の要素のastを返す
+       \end{itemize}
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{S式の解釈 [4]}
+\begin{lstlisting}[firstnumber=16]
+       when "equal" {
+        make $<sexpr>[1].ast eq $<sexpr>[2].ast ?? "t" !! "nil";
+      }
+    }
+  }
+}
+\end{lstlisting}
+\begin{itemize}
+ \item <2-> equal関数
+       \vspace*{0.5zh}
+       \begin{itemize}
+	\item <3-> 2つの引数が等しいならt、そうでないならnil
+	\item <4-> 2番目のS式(つまり第1引数)のastと\\
+	      3番目のS式(つまり第2引数)のastを比較して、\\
+	      等しいならtを、そうでないならnilを返す
+       \end{itemize}
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+ \frametitle{実行してみる}
+実行部分:\\
+\pause
+\hspace*{1zh}
+コマンドライン引数に評価したい式を渡す
+\begin{lstlisting}
+my $str = @*ARGS[0];
+my $m = Lisp.parse($str, actions => Evaluate);
+say $m.ast;
+\end{lstlisting}
+\pause
+先程の式を渡すと…
+\begin{lstlisting}[numbers=none]
+% perl6 lisp.pl "(equal (car '(1 2)) 2)"
+nil
+\end{lstlisting}
+\pause
+少し変えてみる
+\begin{lstlisting}[numbers=none]
+% perl6 lisp.pl "(equal (car '(1 2)) 1)"
+t
+\end{lstlisting}
+\pause
+\begin{center}
+\textcolor{red}{\large{ちゃんと動いてるっぽい！}}
+\end{center}
+\end{frame}
+
+\begin{frame}
+ \frametitle{喜ぶのはまだ早い？}
+\begin{center}
+ 目標の要求定義が適当だったので見逃しているが…\\
+ \uncover<2->{この設計には致命的な\textcolor{red}{欠陥}がある！}
+\end{center} 
+\pause
+\begin{itemize}
+ \item <3-> \textcolor<4->{gray}{quote: 引数に受け取ったS式をそのまま返す}
+ \item <4-> quote: 引数に受け取ったS式を\textcolor{red}{評価せずに}返す
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+ \frametitle{Actionの実行される順番を考えてみる [1] }
+\begin{lstlisting}
+ => <(equal (car '(1 2)) 1)>          #22
+ sexpr => <(equal (car '(1 2)) 1)>     #21
+  sexpr => <equal > #3
+   atom => <equal>   #2
+    symbol => <equal> #1
+  sexpr => <(car '(1 2)) >   #16
+   sexpr => <car > #6         \
+    atom => <car>   #5         \
+     symbol => <car> #4         \
+   sexpr => <'(1 2)>             #15
+    sexpr => <1 >  #10
+     atom => <1>    #9
+      literal => <1> #8
+       num => <1>     #7
+    sexpr => <2>   #14
+     atom => <2>    #13
+      literal => <2> #12
+       num => <2>     #11
+  sexpr => <1>                        #20
+   atom => <1>                         #19
+    literal => <1>                      #18
+     num => <1>                          #17
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]
+ \frametitle{Actionの実行される順番を考えてみる [2] }
+\begin{lstlisting}
+ => <(equal (car '(1 2)) 1)>          #22
+ sexpr => <(equal (car '(1 2)) 1)>     #21
+  sexpr => <equal > #3
+   atom => <equal>   #2
+    symbol => <equal> #1
+  sexpr => <(car '(1 2)) >   #16
+   sexpr => <car > #6         \
+    atom => <car>   #5         \
+     symbol => <car> #4         \
+   sexpr => <'(1 2)>             #15
+    sexpr => <1 >  #10 <== 評価している！
+     atom => <1>    #9
+      literal => <1> #8
+       num => <1>     #7
+    sexpr => <2>   #14 <== 評価している！
+     atom => <2>    #13
+      literal => <2> #12
+       num => <2>     #11
+  sexpr => <1>                        #20
+   atom => <1>                         #19
+    literal => <1>                      #18
+     num => <1>                          #17
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}
+ \frametitle{副作用の悪夢}
+ もし\tt{'(1 2)}が\tt{'(\textcolor{red}{(print 1)} 2)}だったら、というお
+ 話\\
+\pause
+\begin{itemize}
+ \item Lispには
+\begin{itemize}
+ \item 関数(Functions) \pause
+ \item \textcolor{red}{特殊形式}(Special Forms)
+       \begin{itemize}
+	\item quote, if, cond, define, etc.
+       \end{itemize}
+\end{itemize}
+\hspace*{12zh}がある
+\vspace{1zh}
+\pause[4]
+ \item 関数では表現できない特別な評価ルール
+       \begin{itemize}
+	\item <5-> ex. (if cond (expr1) (expr2))
+	\item <6-> expr1/expr2のどちらか\textcolor{red}{のみ}を評価したい
+	\item <7-> 今の設計では両方評価してしまう
+       \end{itemize}
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\frametitle{何故こうなるのか}
+\begin{itemize}
+ \item <2-> \textcolor{red}{深さ優先探索}の\textcolor{red}{戻り掛け}だか
+       ら
+ \vspace{1zh}
+ \item <3-> つまりクォートされた式の内側に居るかどうかを知る手段が無い
+\end{itemize}
+\vspace{3zh}
+\uncover<4->{\hspace{2zh}→やはり無理か？}
+\end{frame}
+
+\begin{frame}[fragile]
+ \frametitle{解決策}
+ \pause
+ 方針：特殊形式の中に入るS式を区別したい
+ \vspace{1zh}
+ \pause
+ \begin{lstlisting}
+ token spform { 'cond' | 'if' | 'define' | 'quote' }
+
+ # sexpr with special forms
+ rule sp_sexpr { '(' <spform> [<ne_sexpr>+? % <.ws>] ')' }
+ # sexpr with no evaluate
+ rule ne_sexpr { <atom> || '(' [<ne_sexpr>+? % <.ws>] ')' }
+ \end{lstlisting}
+\begin{itemize}
+ \item <4-> 特殊形式の中は別のルール(ne\_sexpr)にわける
+ \item <5-> S式と同じ構造だが、actionは何もせずに文字列を返すように実装
+ \item <6-> sp\_sexprは元の文字列を使って上手くやる
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+ \frametitle{まとめ}
+ \pause
+ \begin{itemize}
+  \item <2-> Perl6はGrammarという機能を使って構造的な文字列を簡単にパー
+	スできる
+  \item <3-> Actionsを指定する事で、パースしながら抽象構文木を作れる
+  \item <4-> Actionsの処理は制約が大きいので、それも混みでGrammarを書い
+	た方が最終的に楽
+ \end{itemize}
+\end{frame}
+
+\begin{frame}
+\frametitle{おまけ}
+ 全体的に上手くやってるつもり(自称)の途中実装\\
+
+ \uncover<2->{→ http://github.com/VienosNotes/Domino}
+\vspace*{1zh}
+\begin{itemize}
+ \item <3-> 発表のコードはかなり簡略化したもの
+ \item <4-> ちゃんと他の関数も使えるように
+ \item <5-> できればPerl6の関数も呼べると良いよね
+\end{itemize}
+\vspace{3zh}
+ \hspace{18zh} \uncover<6>{おしまい}
+\end{frame}
+\end{document}

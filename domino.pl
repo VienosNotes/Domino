@@ -12,7 +12,6 @@ grammar Lisp {
     # token ne_symbol { \w+ }
     # token ne_atom { <nil> || <ne_num> || <ne_symbol> }
     rule ne_sexpr { <atom> || <.left> [<ne_sexpr>+? % <.ws>] [<dot> <.ws> <ne_sexpr>]? <.right> }
-
     token spform { 'cond' | 'if' | 'define' | 'quote' }
     rule sp_sexpr { <.left> <spform> [<ne_sexpr>+? % <.ws>]  <.right> }
 

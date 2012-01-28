@@ -137,7 +137,7 @@ grammar Lisp {
 \hspace{1zh}→受理されればMatchオブジェクトが返ってくる
 \vspace{3zh}
 \begin{lstlisting}
-my $str = '(equal (car '(1 2)) 2)';
+my $str = "(equal (car \'(1 2)) 2)";
 my $m = Lisp.parse($str);
 \end{lstlisting}
 \end{frame}
@@ -145,8 +145,8 @@ my $m = Lisp.parse($str);
 \begin{frame}[fragile]
  \frametitle{実際にパースしてみる [2]}
 \begin{lstlisting}
-=> <(equal (car '(1 2)) 1)>
- sexpr => <(equal (car '(1 2)) 1)>
+=> <(equal (car '(1 2)) 2)>
+ sexpr => <(equal (car '(1 2)) 2)>
   sexpr => <equal >
    atom => <equal>
     symbol => <equal>
@@ -163,10 +163,10 @@ my $m = Lisp.parse($str);
      atom => <2>
       literal => <2>
        num => <2>
-  sexpr => <1>
-   atom => <1>
-    literal => <1>
-     num => <1>
+  sexpr => <2>
+   atom => <2>
+    literal => <2>
+     num => <2>
 \end{lstlisting}
 \end{frame}
 
